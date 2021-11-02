@@ -851,6 +851,11 @@ func (client *client) refreshMetadata() error {
 	return nil
 }
 
+func (client *client) printStatus() {
+	Logger.Printf("Seed brokers: %v\n Dead seeds: %v\n Broker list: %v",
+		client.seedBrokers, client.deadSeeds, client.brokers)
+}
+
 func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int, deadline time.Time) error {
 	pastDeadline := func(backoff time.Duration) bool {
 		if !deadline.IsZero() && time.Now().Add(backoff).After(deadline) {
@@ -877,6 +882,8 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 
 	broker := client.any()
 	for ; broker != nil && !pastDeadline(0); broker = client.any() {
+		client.printStatus()
+
 		allowAutoTopicCreation := true
 		if len(topics) > 0 {
 			Logger.Printf("client/metadata fetching metadata for %v from broker %s\n", topics, broker.addr)
@@ -929,8 +936,11 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 			_ = broker.Close()
 			client.deregisterBroker(broker)
 		}
+
+		client.printStatus()
 	}
 
+	client.printStatus()
 	if broker != nil {
 		Logger.Printf("client/metadata not fetching metadata from broker %s as we would go past the metadata timeout\n", broker.addr)
 		return retry(ErrOutOfBrokers)
