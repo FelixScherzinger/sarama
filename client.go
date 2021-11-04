@@ -1,6 +1,7 @@
 package sarama
 
 import (
+	"fmt"
 	"math/rand"
 	"sort"
 	"sync"
@@ -851,9 +852,26 @@ func (client *client) refreshMetadata() error {
 	return nil
 }
 
-func (client *client) printStatus() {
-	Logger.Printf("Seed brokers: %v\n Dead seeds: %v\n Broker list: %v",
-		client.seedBrokers, client.deadSeeds, client.brokers)
+func (client *client) printStatus(phase string) {
+
+	var seedBrokers = make(map[int32]string)
+	var deadSeeds = make(map[int32]string)
+	var brokers = make(map[int32]string)
+
+	for _, broker := range client.seedBrokers {
+		seedBrokers[broker.ID()] = broker.Addr()
+	}
+
+	for _, broker := range client.deadSeeds {
+		deadSeeds[broker.ID()] = broker.Addr()
+	}
+
+	for _, broker := range client.Brokers() {
+		brokers[broker.ID()] = broker.Addr()
+	}
+
+	Logger.Printf("Current phase: %v\nSeed brokers: %v\nDead seeds: %v\nBrokers: %v",
+		phase, seedBrokers, deadSeeds, brokers)
 }
 
 func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int, deadline time.Time) error {
@@ -880,9 +898,11 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 		return err
 	}
 
+	client.printStatus("Start metadata refreshing")
+
 	broker := client.any()
 	for ; broker != nil && !pastDeadline(0); broker = client.any() {
-		client.printStatus()
+		client.printStatus(fmt.Sprintf("Start fetching from broker %v", broker.ID()))
 
 		allowAutoTopicCreation := true
 		if len(topics) > 0 {
@@ -912,6 +932,7 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 
 		case PacketEncodingError:
 			// didn't even send, return the error
+			Logger.Printf("client/metadata failed with PacketEncodingError: %v\n", err)
 			return err
 
 		case KError:
@@ -937,10 +958,9 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 			client.deregisterBroker(broker)
 		}
 
-		client.printStatus()
+		client.printStatus(fmt.Sprintf("Finished fetching from broker %v", broker.ID()))
 	}
 
-	client.printStatus()
 	if broker != nil {
 		Logger.Printf("client/metadata not fetching metadata from broker %s as we would go past the metadata timeout\n", broker.addr)
 		return retry(ErrOutOfBrokers)
@@ -948,6 +968,9 @@ func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int,
 
 	Logger.Println("client/metadata no available broker to send metadata request to")
 	client.resurrectDeadBrokers()
+
+	client.printStatus("End of metadata refreshing")
+
 	return retry(ErrOutOfBrokers)
 }
 
